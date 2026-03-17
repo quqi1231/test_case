@@ -1,0 +1,152 @@
+        <el-tab-pane label="功能模块" name="modules">
+          <div class="module-layout">
+            <!-- 左侧：模块列表 -->
+            <div class="module-sidebar">
+              <div class="sidebar-header">
+                <span>模块列表</span>
+                <el-button type="primary" link @click="handleCreateModule">
+                  <el-icon><Plus /></el-icon>
+                </el-button>
+              </div>
+              <el-scrollbar>
+                <div 
+                  v-for="m in modules" 
+                  :key="m.id" 
+                  class="module-item"
+                  :class="{ active: currentModule?.id === m.id }"
+                  @click="selectModule(m)"
+                >
+                  <el-tag type="info" size="small">{{ m.module_code }}</el-tag>
+                  <span class="module-name">{{ m.module_name }}</span>
+                  <el-badge :value="getModuleInterfaces(m.id).length" type="primary" />
+                </div>
+                <div v-if="!modules.length" class="empty-module">
+                  暂无模块，请新建
+                </div>
+              </el-scrollbar>
+            </div>
+
+            <!-- 右侧：模块内容 -->
+            <div class="module-content">
+              <template v-if="currentModule">
+                <div class="content-header">
+                  <h3>
+                    <el-tag type="info">{{ currentModule.module_code }}</el-tag>
+                    {{ currentModule.module_name }}
+                  </h3>
+                  <div>
+                    <el-button type="primary" size="small" @click="showAddInterfacesToModule">
+                      <el-icon><Plus /></el-icon>添加接口
+                    </el-button>
+                    <el-button type="primary" link @click="handleEditModule(currentModule)">编辑</el-button>
+                    <el-popconfirm title="确认删除?" @confirm="handleDeleteModule(currentModule.id)">
+                      <template #reference><el-button type="danger" link>删除</el-button></template>
+                    </el-popconfirm>
+                  </div>
+                </div>
+
+                <el-tabs v-model="moduleTab">
+                  <el-tab-pane label="接口列表" name="interfaces">
+                    <el-table :data="moduleInterfaces" v-loading="moduleInterfacesLoading">
+                      <el-table-column prop="name" label="接口名称" />
+                      <el-table-column prop="method" label="方法" width="80">
+                        <template #default="{row}">
+                          <el-tag :type="getMethodType(row.method)">{{ row.method }}</el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="url" label="URL" show-overflow-tooltip />
+                      <el-table-column label="操作" width="150">
+                        <template #default="{row}">
+                          <el-button type="primary" link @click="viewInterfaceDetail(row)">详情</el-button>
+                          <el-button type="danger" link @click="removeInterfaceFromModule(row.id)">移除</el-button>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                    <el-empty v-if="!moduleInterfaces.length" description="暂无关联接口，点击上方添加" />
+                  </el-tab-pane>
+                  
+                  <el-tab-pane label="测试用例" name="cases">
+                    <el-empty description="基于页面的测试用例功能开发中" />
+                  </el-tab-pane>
+                </el-tabs>
+              </template>
+              
+              <el-empty v-else description="请选择左侧模块" />
+            </div>
+          </div>
+
+          <!-- 新建/编辑模块对话框 -->
+          <el-dialog v-model="moduleDialogVisible" :title="isEditModule ? '编辑模块' : '新建模块'" width="500px">
+            <el-form :model="moduleForm" label-width="80px">
+              <el-form-item label="模块代码" required>
+                <el-input v-model="moduleForm.module_code" placeholder="如: user" />
+              </el-form-item>
+              <el-form-item label="模块名称" required>
+                <el-input v-model="moduleForm.module_name" placeholder="如: 用户模块" />
+              </el-form-item>
+              <el-form-item label="层级">
+                <el-input-number v-model="moduleForm.level" :min="1" :max="10" />
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="moduleDialogVisible = false">取消</el-button>
+              <el-button type="primary" @click="handleSaveModule">保存</el-button>
+            </template>
+          </el-dialog>
+
+          <!-- 添加接口到模块对话框 -->
+          <el-dialog v-model="addModuleInterfaceDialogVisible" title="添加接口到模块" width="800px">
+            <el-table 
+              ref="interfaceTableRef"
+              :data="availableInterfaces" 
+              v-loading="interfacesLoading"
+              @selection-change="handleModuleInterfaceSelection"
+            >
+              <el-table-column type="selection" width="40" />
+              <el-table-column prop="name" label="接口名称" />
+              <el-table-column prop="method" label="方法" width="80">
+                <template #default="{row}">
+                  <el-tag :type="getMethodType(row.method)">{{ row.method }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="url" label="URL" show-overflow-tooltip />
+              <el-table-column prop="module_name" label="所属模块">
+                <template #default="{row}">
+                  <el-tag v-if="row.module_name" type="info" size="small">{{ row.module_name }}</el-tag>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <template #footer>
+              <el-button @click="addModuleInterfaceDialogVisible = false">取消</el-button>
+              <el-button type="primary" @click="saveModuleInterfaces" :disabled="!selectedModuleInterfaces.length">
+                添加选中 ({{ selectedModuleInterfaces.length }})
+              </el-button>
+            </template>
+          </el-dialog>
+
+          <!-- 接口详情对话框 -->
+          <el-dialog v-model="interfaceDetailDialogVisible" :title="`${currentInterface?.name || '接口'} 详情`" width="700px">
+            <template v-if="currentInterface">
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="接口名称">{{ currentInterface.name }}</el-descriptions-item>
+                <el-descriptions-item label="方法">
+                  <el-tag :type="getMethodType(currentInterface.method)">{{ currentInterface.method }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="URL" :span="2">
+                  <code>{{ currentInterface.url }}</code>
+                </el-descriptions-item>
+                <el-descriptions-item label="描述" :span="2">{{ currentInterface.description || '-' }}</el-descriptions-item>
+              </el-descriptions>
+
+              <el-divider>请求头</el-divider>
+              <pre class="code-block">{{ JSON.stringify(currentInterface.headers || {}, null, 2) }}</pre>
+
+              <el-divider>Query参数</el-divider>
+              <pre class="code-block">{{ JSON.stringify(currentInterface.params || {}, null, 2) }}</pre>
+
+              <el-divider>请求体</el-divider>
+              <pre class="code-block">{{ JSON.stringify(currentInterface.body || {}, null, 2) }}</pre>
+            </template>
+          </el-dialog>
+        </el-tab-pane>
